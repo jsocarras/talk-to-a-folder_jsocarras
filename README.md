@@ -1,5 +1,7 @@
 # Talk-to-a-Folder
 
+Visit app here: https://talk-to-a-folder-jsocarras.vercel.app/
+
 Talk-to-a-Folder is a lightweight web application that lets you authenticate with Google, index a Google Drive folder, and ask questions across all files in that folder with grounded citations.
 
 The system:
