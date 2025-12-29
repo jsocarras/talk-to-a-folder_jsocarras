@@ -1,30 +1,32 @@
 flowchart LR
 
 %% =========================
-%% CURRENT STATE (PROTOTYPE)
+%% CURRENT STATE (DEPLOYED PROTOTYPE)
 %% =========================
-subgraph CURRENT["Current State (Prototype)"]
+subgraph CURRENT["Current State (Deployed Prototype)"]
 direction LR
 
-%% -------- Client --------
-subgraph UI["Frontend (React + Vite)"]
+%% -------- Client / Hosting --------
+subgraph UI["Frontend (React + Vite) hosted on Vercel"]
   FE["Talk-to-a-Folder Web UI
-  - Google OAuth
-  - Paste folder link
+  - Sign in with Google
+  - Paste Drive folder link
   - Index and Chat
   - Sources panel"]
 end
 
-%% -------- Backend --------
-subgraph API["Backend (Node + Express)"]
+%% -------- Backend / Hosting --------
+subgraph API["Backend (Node + Express) hosted on Render"]
   ROUTES["HTTP API
-  /auth/google
-  /auth/google/callback
-  /api/me
-  /api/ingest
-  /api/chat"]
-  SESSION["Session Store
-  In-memory express-session"]
+  GET /auth/google
+  GET /auth/google/callback
+  GET /api/me
+  POST /api/ingest
+  POST /api/chat
+  POST /auth/logout"]
+  SESSION["Session cookie
+  express-session in-memory store
+  holds google tokens"]
 end
 
 %% -------- External Services --------
@@ -32,7 +34,7 @@ subgraph GOOGLE["Google APIs"]
   OAUTH["OAuth 2.0
   Drive read-only scope"]
   DRIVE["Google Drive API
-  list files and export content"]
+  list files and export text"]
 end
 
 subgraph LLM["LLM Services"]
@@ -42,35 +44,46 @@ subgraph LLM["LLM Services"]
   gpt-4.1-mini"]
 end
 
-%% -------- In-memory Retrieval --------
-subgraph RAG["RAG In-Memory"]
-  CHUNK["Text Chunker
-  ~1200 chars overlap"]
-  VEC["Vectors and metadata
-  stored in memory"]
-  SIM["Cosine similarity
-  top K chunks"]
+%% -------- RAG (in-memory) --------
+subgraph RAG["RAG In-Memory (per server instance)"]
+  CHUNK["Text chunker
+  ~1200 chars overlap 150"]
+  VEC["Vector index
+  embeddings plus metadata"]
+  RET["Retriever
+  similarity top K"]
   CITE["Citation builder
-  numbered sources"]
+  numbered sources plus links"]
 end
 
-%% -------- Wires --------
-FE -->|HTTPS with cookies| ROUTES
-ROUTES --> SESSION
+%% =========================
+%% AUTH FLOW
+%% =========================
+FE -->|user clicks sign in| ROUTES
+ROUTES -->|redirect to google| OAUTH
+OAUTH -->|callback with code| ROUTES
+ROUTES -->|store tokens in session| SESSION
+ROUTES -->|redirect back to web origin| FE
 
-ROUTES -->|OAuth redirect| OAUTH
-OAUTH -->|access tokens| ROUTES
-
-ROUTES -->|authorized client| DRIVE
+%% =========================
+%% INGEST FLOW
+%% =========================
+FE -->|POST ingest folder link| ROUTES
+ROUTES -->|read tokens from session| SESSION
+ROUTES -->|list files and export text| DRIVE
 DRIVE -->|file list| ROUTES
 DRIVE -->|exported text| ROUTES
-
-ROUTES -->|ingest request| CHUNK
-CHUNK -->|text chunks| EMBED
+ROUTES -->|send text| CHUNK
+CHUNK -->|chunks| EMBED
 EMBED -->|vectors| VEC
 
-ROUTES -->|chat request| SIM
-SIM -->|top chunks| CITE
+%% =========================
+%% CHAT FLOW
+%% =========================
+FE -->|POST question| ROUTES
+ROUTES -->|read tokens from session| SESSION
+ROUTES -->|retrieve top chunks| RET
+RET -->|top chunks| CITE
 CITE -->|grounded context| CHAT
 CHAT -->|answer text| ROUTES
 ROUTES -->|answer and citations| FE
