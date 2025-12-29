@@ -15,6 +15,10 @@ import { buildVectorIndexFromFiles, answerQuestionWithCitations } from "./rag.js
 
 export function createApp() {
   const app = express();
+
+  // Required when running behind Render/other proxies so secure cookies work correctly
+  app.set("trust proxy", 1);
+
   app.use(express.json({ limit: "2mb" }));
 
   const WEB_ORIGIN = process.env.WEB_ORIGIN || "http://localhost:5173";
@@ -26,6 +30,11 @@ export function createApp() {
     })
   );
 
+  // Cross-site session cookie settings:
+  // - In production (Vercel frontend -> Render backend), cookies must be SameSite=None; Secure
+  // - In local dev over http, Secure cookies won't work, so use lax + not secure
+  const isProd = process.env.NODE_ENV === "production";
+
   app.use(
     session({
       secret: process.env.SESSION_SECRET || "dev-secret",
@@ -33,7 +42,8 @@ export function createApp() {
       saveUninitialized: false,
       cookie: {
         httpOnly: true,
-        sameSite: "lax"
+        sameSite: isProd ? "none" : "lax",
+        secure: isProd
       }
     })
   );
@@ -60,7 +70,14 @@ export function createApp() {
       const { tokens } = await oauth2.getToken(code);
       req.session.googleTokens = tokens;
 
-      res.redirect(`${WEB_ORIGIN}/`);
+      // Ensure session is persisted before redirect
+      req.session.save((err) => {
+        if (err) {
+          console.error("Session save failed:", err);
+          return res.status(500).send("Session save failed");
+        }
+        res.redirect(`${WEB_ORIGIN}/`);
+      });
     } catch (e) {
       console.error(e);
       res.status(500).send("OAuth callback failed");
@@ -84,7 +101,9 @@ export function createApp() {
       const folderId = parseDriveFolderId(folderUrl);
 
       if (!folderId) {
-        return res.status(400).json({ error: "Could not parse folder ID from the provided link" });
+        return res
+          .status(400)
+          .json({ error: "Could not parse folder ID from the provided link" });
       }
 
       const drive = driveClientFromTokens(req.session.googleTokens);
@@ -105,8 +124,7 @@ export function createApp() {
 
       const rag = await buildVectorIndexFromFiles(filesWithText);
 
-      const sid = req.sessionID;
-      const container = getSessionContainer(sid);
+      const container = getSessionContainer(req.sessionID);
 
       container.folderId = folderId;
       container.files = supported.map((f) => ({
